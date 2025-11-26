@@ -45,10 +45,10 @@ async fn main() -> anyhow::Result<()> {
         "0x7fdafde5cfb5465924316eced2d3715494c517d1".to_string(), // Add more trader addresses here
     ];
 
-    println!("Monitoring {} traders", monitored_traders.len());
-    for (i, trader) in monitored_traders.iter().enumerate() {
-        println!("  {}. {}", i + 1, trader);
-    }
+    // println!("Monitoring {} traders", monitored_traders.len());
+    // for (i, trader) in monitored_traders.iter().enumerate() {
+    //     println!("  {}. {}", i + 1, trader);
+    // }
     println!();
 
     let btc_tx = trade_tx.clone();
