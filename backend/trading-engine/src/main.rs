@@ -42,7 +42,7 @@ async fn main() -> anyhow::Result<()> {
 
     let monitored_traders = vec![
         "0x5b5d51203a0f9079f8aeb098a6523a13f298c060".to_string(),
-        "0x7fdafde5cfb5465924316eced2d3715494c517d1".to_string(), // Add more trader addresses here
+        "0x7fdafde5cfb5465924316eced2d3715494c517d1".to_string(),
     ];
 
     // println!("Monitoring {} traders", monitored_traders.len());

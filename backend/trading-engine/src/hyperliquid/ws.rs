@@ -47,6 +47,7 @@ pub async fn fetch_trades(
                         channel: parsed.channel,
                         data: parsed.data,
                     };
+                    println!("{:?}", out);
 
                     let _ = channel_tx.send(out);
                 }

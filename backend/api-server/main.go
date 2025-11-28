@@ -1,13 +1,22 @@
 package main
 
-import "github.com/gofiber/fiber/v2"
+import (
+	"copytrading/apiserver/internal/common/db"
+	"copytrading/apiserver/internal/router"
+)
 
 func main() {
-	app := fiber.New()
+ 	db.Init();
+	db.Migrate()
+	router.SetupRoutes()
+	// app := fiber.New()
+	// api := app.Group("/api")
+	// auth := api.Group("/auth");
 
-	app.Get("/", func(c *fiber.Ctx) error {
-		return c.SendString("Hello, World!")
-	})
+	// app.Get("/", func(c *fiber.Ctx) error {
+	// 	return c.SendString("Hello, World!")
+	// })
 
-	app.Listen(":3000")
+
+	// app.Listen(":3000")
 }

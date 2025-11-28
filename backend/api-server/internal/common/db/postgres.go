@@ -23,6 +23,6 @@ func Init() {
 	}
 }
 
-func migrate(){
+func Migrate(){
 	DB.AutoMigrate(&models.User{})
 }
