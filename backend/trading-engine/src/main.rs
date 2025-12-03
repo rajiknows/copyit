@@ -7,13 +7,17 @@
 // 4. Monitor ( position monitoring module )
 // 5. Hyperliquid ( hyperliquid ws connection , all apis)
 
+use std::env;
+
 // use futures_util::future::ok;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use tokio::sync::broadcast;
 
-use crate::hyperliquid::ws::fetch_fills_with_retry;
+use crate::{api::Server, hyperliquid::ws::fetch_fills_with_retry};
 
-mod detector;
+mod api;
+mod cron;
+mod engine;
 mod hyperliquid;
 
 #[derive(Debug, Clone, Deserialize)]
@@ -34,12 +38,17 @@ pub struct TradeMessage {
     pub data: Vec<WsTrade>,
 }
 
+#[derive(Serialize, Debug, Clone)]
+pub struct FullOrder {}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     println!("Starting Hyperliquid Copy Trading Engine...\n");
 
+    let db_url = env::var("DB_URL").expect("DB_URL must be set");
+
     let (trade_tx, trade_rx) = broadcast::channel::<TradeMessage>(100);
-    let (detected_tx, detected_rx1) = broadcast::channel::<detector::DetectedTrade>(100);
+    let (detected_tx, detected_rx1) = broadcast::channel::<engine::DetectedTrade>(100);
     let detected_rx2 = detected_tx.subscribe();
 
     let monitored_traders = vec![
@@ -56,69 +65,27 @@ async fn main() -> anyhow::Result<()> {
         });
     }
 
-    // println!("Monitoring {} traders", monitored_traders.len());
-    // for (i, trader) in monitored_traders.iter().enumerate() {
-    //     println!("  {}. {}", i + 1, trader);
-    // }
-    println!();
+    let (full_order_tx, mut full_order_reciever) = tokio::sync::broadcast::channel(10_000);
+    let grouper_rx = rx.resubscribe();
+    tokio::spawn(async move {
+        println!("grouper starts");
+        engine::grouper::start(grouper_rx, full_order_tx).await;
+    });
 
-    // let btc_tx = trade_tx.clone();
-    // tokio::spawn(async move {
-    //     println!("Connecting to Hyperliquid WebSocket...");
-    //     match hyperliquid::ws::fetch_trades("BTC", btc_tx).await {
-    //         Ok(_) => println!("WebSocket connected"),
-    //         Err(e) => eprintln!("WebSocket error: {}", e),
-    //     }
-    // });
+    // grouper -> executor
+    tokio::spawn(async move {
+        println!("executor started");
+        engine::executor::start(full_order_reciever).await;
+    });
+    let server = Server::new(3000, db_url);
+    server.start()?;
 
-    // let sol_tx = trade_tx.clone();
-    // tokio::spawn(async move {
-    //     println!("connecting ws for sol trades");
-    //     match hyperliquid::ws::fetch_trades("SOL", sol_tx).await {
-    //         Ok(_) => println!("WebSocket connected"),
-    //         Err(e) => eprintln!("WebSocket error: {}", e),
-    //     }
-    // });
-
-    // let detector_traders = monitored_traders.clone();
-    // tokio::spawn(async move {
-    //     if let Err(e) = detector::init(trade_rx, detector_traders, detected_tx).await {
-    //         eprintln!("Detector error: {}", e);
-    //     }
-    // });
-
-    // tokio::spawn(async move {
-    //     detector::monitor::start_stats_reporter(monitored_traders, detected_rx1).await;
-    // });
-
-    // let mut detected_rx = detected_rx2;
-    // loop {
-    //     match detected_rx.recv().await {
-    //         Ok(trade) => {
-    //             println!(
-    //                 "DETECTED TRADE: {} {} {} @ {} (value: ~${:.2})",
-    //                 detector::parser::parse_side(&trade.side),
-    //                 trade.size,
-    //                 trade.coin,
-    //                 trade.price,
-    //                 detector::parser::calculate_trade_value(&trade.price, &trade.size)
-    //                     .unwrap_or(0.0)
-    //             );
-    //             println!("   Trader: {}", trade.trader_address);
-    //             println!("   Hash: {}\n", trade.tx_hash);
-    //         }
-    //         Err(e) => {
-    //             eprintln!("Error receiving detected trade: {}", e);
-    //         }
-    //     }
-    // }
-    loop{
-        match rx.recv().await{
-            Ok(trade)=>{
-
+    loop {
+        match rx.recv().await {
+            Ok(trade) => {
                 println!("{:?}", trade);
             }
-            Err(e)=> {
+            Err(e) => {
                 eprintln!("Error receiving detected trade: {}", e);
             }
         }
