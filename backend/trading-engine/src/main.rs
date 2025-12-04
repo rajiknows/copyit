@@ -78,7 +78,7 @@ async fn main() -> anyhow::Result<()> {
         engine::executor::start(full_order_reciever).await;
     });
     let server = Server::new(3000, db_url);
-    server.start()?;
+    server.start().await?;
 
     loop {
         match rx.recv().await {

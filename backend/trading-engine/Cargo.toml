@@ -6,6 +6,7 @@ edition = "2024"
 [dependencies]
 alloy = "1.1.2"
 anyhow = "1.0.100"
+axum = "0.8.7"
 futures-util = "0.3.31"
 hyperliquid_rust_sdk = "0.6.0"
 log = "0.4.28"

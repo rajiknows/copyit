@@ -18,10 +18,9 @@ const WS_MAINNET: &str = "wss://api.hyperliquid.xyz/ws";
 //     data: Vec<WsTrade>,
 // }
 
-
 use anyhow::anyhow;
 // use futures_util::{SinkExt, StreamExt};
-use serde::{ Serialize};
+use serde::Serialize;
 use tokio::net::TcpStream;
 // use tokio_tungstenite::{tungstenite::protocol::Message, MaybeTlsStream, WebSocketStream};
 use url::Url;
@@ -87,7 +86,7 @@ struct SubscriptionResponse {
 }
 
 pub async fn fetch_fills(
-    user_addr: String,
+    trader_addr: String,
     channel_tx: tokio::sync::broadcast::Sender<WsFill>,
 ) -> anyhow::Result<()> {
     let url = WS_MAINNET.into_client_request().unwrap();
@@ -98,7 +97,7 @@ pub async fn fetch_fills(
         method: "subscribe".to_string(),
         subscription: Subscription {
             type_: "userFills".to_string(),
-            user: user_addr.clone(),
+            user: trader_addr.clone(),
         },
     };
 
@@ -112,7 +111,7 @@ pub async fn fetch_fills(
             if text.contains("subscriptionResponse") {
                 let response: Incoming = serde_json::from_str(&text)?;
                 if let Incoming::SubscriptionResponse(_) = response {
-                    println!("Successfully subscribed to userFills for {user_addr}");
+                    println!("Successfully subscribed to userFills for {trader_addr}");
                     break;
                 }
             }
@@ -136,11 +135,7 @@ pub async fn fetch_fills(
                                 // Optional: log or emit metrics
                                 println!(
                                     "[{}] {} {} @ {} | Dir: {:?}",
-                                    user_addr,
-                                    fill.side,
-                                    fill.sz,
-                                    fill.px,
-                                    fill.dir
+                                    trader_addr, fill.side, fill.sz, fill.px, fill.dir
                                 );
                             }
                         }
@@ -155,13 +150,15 @@ pub async fn fetch_fills(
                 let _ = ws_stream.send(Message::Pong(data)).await;
             }
             Ok(Message::Close(_)) | Err(_) => {
-                return Err(anyhow!("WebSocket closed for user {user_addr}"));
+                return Err(anyhow!("WebSocket closed for user {trader_addr}"));
             }
             _ => {}
         }
     }
 
-    Err(anyhow!("WebSocket stream ended unexpectedly for {user_addr}"))
+    Err(anyhow!(
+        "WebSocket stream ended unexpectedly for {trader_addr}"
+    ))
 }
 
 pub async fn fetch_fills_with_retry(
