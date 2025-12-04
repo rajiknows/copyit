@@ -38,12 +38,13 @@ pub struct TradeMessage {
     pub data: Vec<WsTrade>,
 }
 
-#[derive(Serialize, Debug, Clone)]
-pub struct FullOrder {}
+// #[derive(Serialize, Debug, Clone)]
+// pub struct FullOrder {}
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     println!("Starting Hyperliquid Copy Trading Engine...\n");
+    dotenvy::dotenv().ok();
 
     let db_url = env::var("DB_URL").expect("DB_URL must be set");
 
@@ -71,6 +72,9 @@ async fn main() -> anyhow::Result<()> {
         println!("grouper starts");
         engine::grouper::start(grouper_rx, full_order_tx).await;
     });
+    while let Ok(full_order) = full_order_reciever.recv().await{
+            println!("{:?}", full_order);
+    }
 
     // grouper -> executor
     tokio::spawn(async move {
