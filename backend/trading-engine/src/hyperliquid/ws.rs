@@ -1,31 +1,14 @@
-use std::{fmt::Formatter, thread::sleep, time::Duration};
-
+use std::{ thread::sleep, time::Duration};
 use futures_util::{SinkExt, StreamExt};
 use serde::Deserialize;
-use tokio::sync::broadcast;
-use tokio_tungstenite::connect_async;
 use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
-use url::form_urlencoded::parse;
+use anyhow::anyhow;
+use serde::Serialize;
 
-use crate::{TradeMessage, WsTrade};
+use crate::channel::WsFillChannel;
 
 const WS_MAINNET: &str = "wss://api.hyperliquid.xyz/ws";
-
-// #[derive(Debug, Deserialize)]
-// struct Incoming {
-//     channel: String,
-//     data: Vec<WsTrade>,
-// }
-
-use anyhow::anyhow;
-// use futures_util::{SinkExt, StreamExt};
-use serde::Serialize;
-use tokio::net::TcpStream;
-// use tokio_tungstenite::{tungstenite::protocol::Message, MaybeTlsStream, WebSocketStream};
-use url::Url;
-
-// const WS_MAINNET: &str = "wss://api.hyperliquid.xyz/ws";
 
 #[derive(Debug, Serialize, Deserialize)]
 struct SubscriptionRequest {
@@ -87,12 +70,11 @@ struct SubscriptionResponse {
 
 pub async fn fetch_fills(
     trader_addr: String,
-    channel_tx: tokio::sync::broadcast::Sender<WsFill>,
+    channel_tx: tokio::sync::broadcast::Sender<WsFillChannel>,
 ) -> anyhow::Result<()> {
     let url = WS_MAINNET.into_client_request().unwrap();
     let (mut ws_stream, _) = tokio_tungstenite::connect_async(url).await?;
 
-    // Correct subscription format
     let sub = SubscriptionRequest {
         method: "subscribe".to_string(),
         subscription: Subscription {
@@ -104,7 +86,6 @@ pub async fn fetch_fills(
     let sub_msg = Message::text(serde_json::to_string(&sub)?);
     ws_stream.send(sub_msg).await?;
 
-    // Optional: wait for subscription ack
     while let Some(msg) = ws_stream.next().await {
         let msg = msg?;
         if let Message::Text(text) = msg {
@@ -131,7 +112,12 @@ pub async fn fetch_fills(
                                     continue; // or handle snapshot once at startup
                                 }
 
-                                let _ = channel_tx.send(fill.clone());
+                                let channelfill = WsFillChannel{
+                                    fill: fill.clone(),
+                                    user : resp.data.user.clone(),
+                                };
+
+                                let _ = channel_tx.send(channelfill);
                                 // Optional: log or emit metrics
                                 println!(
                                     "[{}] {} {} @ {} | Dir: {:?}",
@@ -163,7 +149,7 @@ pub async fn fetch_fills(
 
 pub async fn fetch_fills_with_retry(
     user_addr: String,
-    channel_tx: tokio::sync::broadcast::Sender<WsFill>,
+    channel_tx: tokio::sync::broadcast::Sender<WsFillChannel>,
 ) -> ! {
     loop {
         match fetch_fills(user_addr.clone(), channel_tx.clone()).await {
@@ -178,66 +164,3 @@ pub async fn fetch_fills_with_retry(
         println!("Reconnecting to userFills for {user_addr}...");
     }
 }
-// pub async fn fetch_fills(user_addr: String, channel_tx: broadcast::Sender<TradeMessage>)-> anyhow::Result<()>{
-//     let req = WS_MAINNET.into_client_request().unwrap();
-//     let (mut socket,_) = connect_async(req).await?;
-
-//     let msg = Message::text(format!(
-//         r#"{{
-//         "method":"userFills",
-//         "user":"{user_addr}"
-//         }}"#
-//     ));
-//     socket.send(msg).await?;
-//     loop{
-//         let resp = socket.next().await.ok_or_else(|| anyhow::anyhow!("no response"))??;
-//         if let Message::Text(text) = resp{
-//             if let Ok(parsed) = serde_json::from_str::<Incoming>(&text){
-//                 println!("{}", parsed);
-
-//             }
-//         }
-//     }
-//     Ok(())
-// }
-
-// pub async fn fetch_trades(
-//     coin: &str,
-//     channel_tx: broadcast::Sender<TradeMessage>,
-// ) -> anyhow::Result<()> {
-//     let req = WS_MAINNET.into_client_request().unwrap();
-//     let (mut socket, _) = connect_async(req).await?;
-
-//     let msg = Message::text(format!(
-//         r#"{{
-//             "method": "subscribe",
-//             "subscription": {{
-//                 "type": "trades",
-//                 "coin": "{coin}"
-//             }}
-//         }}"#
-//     ));
-
-//     socket.send(msg).await?;
-
-//     loop {
-//         let resp = socket
-//             .next()
-//             .await
-//             .ok_or_else(|| anyhow::anyhow!("no response"))??;
-
-//         if let Message::Text(text) = resp {
-//             if let Ok(parsed) = serde_json::from_str::<Incoming>(&text) {
-//                 if parsed.channel != "error" {
-//                     let out = TradeMessage {
-//                         channel: parsed.channel,
-//                         data: parsed.data,
-//                     };
-//                     println!("{:?}", out);
-
-//                     let _ = channel_tx.send(out);
-//                 }
-//             }
-//         }
-//     }
-// }

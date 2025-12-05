@@ -13,13 +13,14 @@ use std::env;
 use serde::{Deserialize, Serialize};
 use tokio::sync::broadcast;
 
-use crate::{api::Server, hyperliquid::ws::fetch_fills_with_retry};
+use crate::{api::Server, channel::WsFillChannel, hyperliquid::ws::fetch_fills_with_retry};
 
 mod api;
 mod cron;
 mod engine;
 mod hyperliquid;
-
+mod models;
+mod channel;
 #[derive(Debug, Clone, Deserialize)]
 pub struct WsTrade {
     pub coin: String,
@@ -48,16 +49,17 @@ async fn main() -> anyhow::Result<()> {
 
     let db_url = env::var("DB_URL").expect("DB_URL must be set");
 
-    let (trade_tx, trade_rx) = broadcast::channel::<TradeMessage>(100);
-    let (detected_tx, detected_rx1) = broadcast::channel::<engine::DetectedTrade>(100);
-    let detected_rx2 = detected_tx.subscribe();
+    // let (trade_tx, trade_rx) = broadcast::channel::<TradeMessage>(100);
+    // let (detected_tx, detected_rx1) = broadcast::channel::<engine::DetectedTrade>(100);
+    // let detected_rx2 = detected_tx.subscribe();
 
     let monitored_traders = vec![
         "0x5b5d51203a0f9079f8aeb098a6523a13f298c060".to_string(),
         "0x7fdafde5cfb5465924316eced2d3715494c517d1".to_string(),
+
     ];
 
-    let (tx, mut rx) = tokio::sync::broadcast::channel(10_000);
+    let (tx, mut rx) = tokio::sync::broadcast::channel::<WsFillChannel>(10_000);
 
     for trader in monitored_traders {
         let tx = tx.clone();

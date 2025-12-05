@@ -5,10 +5,11 @@ use tokio::time::sleep;
 use rust_decimal::prelude::*;
 use rust_decimal_macros::dec;
 
-use crate::hyperliquid::ws::WsFill;
+use crate::channel::WsFillChannel;
 
 #[derive(Debug, Clone)]
 pub struct FullOrder {
+    pub user:String,
     pub coin: String,
     pub dir: String,           // "Open Long", "Close Short", etc.
     pub total_sz: Decimal,
@@ -20,6 +21,7 @@ pub struct FullOrder {
 
 #[derive(Debug, Clone)]
 struct PendingOrder {
+    user: String,
     coin: String,
     dir: String,
     total_sz: Decimal,
@@ -30,25 +32,26 @@ struct PendingOrder {
     oid: u64,
 }
 
-pub async fn start(mut rx: broadcast::Receiver<WsFill>, tx: broadcast::Sender<FullOrder>) {
+pub async fn start(mut rx: broadcast::Receiver<WsFillChannel>, tx: broadcast::Sender<FullOrder>) {
     let mut pending: HashMap<u64, PendingOrder> = HashMap::new();
 
     loop {
         tokio::select! {
-            Ok(fill) = rx.recv() => {
-                let oid = fill.oid;
-                let sz = Decimal::from_str(&fill.sz).unwrap_or(dec!(0));
-                let px = Decimal::from_str(&fill.px).unwrap_or(dec!(0));
+            Ok(wsfill) = rx.recv() => {
+                let oid = wsfill.fill.oid;
+                let sz = Decimal::from_str(&wsfill.fill.sz).unwrap_or(dec!(0));
+                let px = Decimal::from_str(&wsfill.fill.px).unwrap_or(dec!(0));
                 let weighted = px * sz;
 
                 let entry = pending.entry(oid).or_insert_with(|| PendingOrder {
-                    coin: fill.coin.clone(),
-                    dir: fill.dir.clone().unwrap_or("Unknown".to_string()),
+                    user:wsfill.user.clone(),
+                    coin: wsfill.fill.coin.clone(),
+                    dir: wsfill.fill.dir.clone().unwrap_or("Unknown".to_string()),
                     total_sz: dec!(0),
                     weighted_px: dec!(0),
-                    timestamp: fill.time,
+                    timestamp: wsfill.fill.time,
                     last_seen: Instant::now(),
-                    hash: fill.hash.clone(),
+                    hash: wsfill.fill.hash.clone(),
                     oid,
                 });
 
@@ -74,6 +77,7 @@ pub async fn start(mut rx: broadcast::Receiver<WsFill>, tx: broadcast::Sender<Fu
                                 };
 
                                 let full = FullOrder {
+                                    user:final_order.user,
                                     coin: final_order.coin,
                                     dir: final_order.dir,
                                     total_sz: final_order.total_sz,
@@ -96,6 +100,7 @@ pub async fn start(mut rx: broadcast::Receiver<WsFill>, tx: broadcast::Sender<Fu
                     if now.duration_since(p.last_seen) > Duration::from_millis(600) {
                         let avg_px = if p.total_sz > dec!(0) { p.weighted_px / p.total_sz } else { dec!(0) };
                         let full = FullOrder {
+                            user: p.user.clone(),
                             coin: p.coin.clone(),
                             dir: p.dir.clone(),
                             total_sz: p.total_sz,
