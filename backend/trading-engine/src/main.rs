@@ -11,6 +11,7 @@ use std::env;
 
 // use futures_util::future::ok;
 use serde::{Deserialize, Serialize};
+use sqlx::postgres::types::PgPolygon;
 use tokio::sync::broadcast;
 
 use crate::{api::Server, channel::WsFillChannel, hyperliquid::ws::fetch_fills_with_retry};
@@ -48,6 +49,8 @@ async fn main() -> anyhow::Result<()> {
     dotenvy::dotenv().ok();
 
     let db_url = env::var("DB_URL").expect("DB_URL must be set");
+    let pg_pool = sqlx::postgres::PgPool::connect(&db_url).await?;
+    sqlx::migrate!().run(&pg_pool).await?;
 
     // let (trade_tx, trade_rx) = broadcast::channel::<TradeMessage>(100);
     // let (detected_tx, detected_rx1) = broadcast::channel::<engine::DetectedTrade>(100);
@@ -81,7 +84,7 @@ async fn main() -> anyhow::Result<()> {
     // grouper -> executor
     tokio::spawn(async move {
         println!("executor started");
-        engine::executor::start(full_order_reciever).await;
+        engine::executor::start(full_order_reciever, pg_pool, "adnbsadseer3w7b3wq7wuyew37ot3wew".to_string()).await;
     });
     let server = Server::new(3000, db_url);
     server.start().await?;
