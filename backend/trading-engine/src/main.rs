@@ -10,9 +10,7 @@
 use std::env;
 
 // use futures_util::future::ok;
-use serde::{Deserialize, Serialize};
-use sqlx::postgres::types::PgPolygon;
-use tokio::sync::broadcast;
+use serde::{Deserialize };
 
 use crate::{api::Server, channel::WsFillChannel, hyperliquid::ws::fetch_fills_with_retry};
 
@@ -40,9 +38,6 @@ pub struct TradeMessage {
     pub data: Vec<WsTrade>,
 }
 
-// #[derive(Serialize, Debug, Clone)]
-// pub struct FullOrder {}
-
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     println!("Starting Hyperliquid Copy Trading Engine...\n");
@@ -51,10 +46,6 @@ async fn main() -> anyhow::Result<()> {
     let db_url = env::var("DB_URL").expect("DB_URL must be set");
     let pg_pool = sqlx::postgres::PgPool::connect(&db_url).await?;
     sqlx::migrate!().run(&pg_pool).await?;
-
-    // let (trade_tx, trade_rx) = broadcast::channel::<TradeMessage>(100);
-    // let (detected_tx, detected_rx1) = broadcast::channel::<engine::DetectedTrade>(100);
-    // let detected_rx2 = detected_tx.subscribe();
 
     let monitored_traders = vec![
         "0x5b5d51203a0f9079f8aeb098a6523a13f298c060".to_string(),
@@ -71,20 +62,19 @@ async fn main() -> anyhow::Result<()> {
         });
     }
 
-    let (full_order_tx, mut full_order_reciever) = tokio::sync::broadcast::channel(10_000);
+    let (full_order_tx, full_order_reciever) = tokio::sync::broadcast::channel(10_000);
     let grouper_rx = rx.resubscribe();
     tokio::spawn(async move {
         println!("grouper starts");
         engine::grouper::start(grouper_rx, full_order_tx).await;
     });
-    while let Ok(full_order) = full_order_reciever.recv().await{
-            println!("{:?}", full_order);
-    }
 
     // grouper -> executor
+    let agent_key = env::var("AGENT_KEY").expect("AGENT_KEY must be set");
+    let pg_pool_clone = pg_pool.clone();
     tokio::spawn(async move {
         println!("executor started");
-        engine::executor::start(full_order_reciever, pg_pool, "adnbsadseer3w7b3wq7wuyew37ot3wew".to_string()).await;
+        engine::executor::start(full_order_reciever, pg_pool_clone, &agent_key).await;
     });
     let server = Server::new(3000, db_url);
     server.start().await?;

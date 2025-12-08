@@ -1,52 +1,12 @@
-   0.154514833s  INFO prepare_target{force=false package_id=trading-engine v0.1.0 (/Users/raj/projects/copytrading/backend/trading-engine) target="trading-engine"}: cargo::core::compiler::fingerprint: fingerprint error for trading-engine v0.1.0 (/Users/raj/projects/copytrading/backend/trading-engine)/Check { test: false }/TargetInner { name: "trading-engine", doc: true, ..: with_path("/Users/raj/projects/copytrading/backend/trading-engine/src/main.rs", Edition2024) }
-   0.154527417s  INFO prepare_target{force=false package_id=trading-engine v0.1.0 (/Users/raj/projects/copytrading/backend/trading-engine) target="trading-engine"}: cargo::core::compiler::fingerprint:     err: failed to read `/Users/raj/projects/copytrading/backend/trading-engine/target/debug/.fingerprint/trading-engine-a278435118a2d135/bin-trading-engine`
-
-Caused by:
-    No such file or directory (os error 2)
-
-Stack backtrace:
-   0: std::backtrace::Backtrace::create
-   1: cargo_util::paths::read_bytes
-   2: cargo_util::paths::read
-   3: cargo::core::compiler::fingerprint::_compare_old_fingerprint
-   4: cargo::core::compiler::fingerprint::prepare_target
-   5: cargo::core::compiler::compile
-   6: <cargo::core::compiler::build_runner::BuildRunner>::compile
-   7: cargo::ops::cargo_compile::compile_ws
-   8: cargo::ops::cargo_compile::compile_with_exec
-   9: cargo::ops::cargo_compile::compile
-  10: cargo::commands::check::exec
-  11: <cargo::cli::Exec>::exec
-  12: cargo::main
-  13: std::sys::backtrace::__rust_begin_short_backtrace::<fn(), ()>
-  14: std::rt::lang_start::<()>::{closure#0}
-  15: std::rt::lang_start_internal
-  16: _main
-   0.173468625s  INFO prepare_target{force=false package_id=trading-engine v0.1.0 (/Users/raj/projects/copytrading/backend/trading-engine) target="trading-engine"}: cargo::core::compiler::fingerprint: fingerprint error for trading-engine v0.1.0 (/Users/raj/projects/copytrading/backend/trading-engine)/Check { test: true }/TargetInner { name: "trading-engine", doc: true, ..: with_path("/Users/raj/projects/copytrading/backend/trading-engine/src/main.rs", Edition2024) }
-   0.173474292s  INFO prepare_target{force=false package_id=trading-engine v0.1.0 (/Users/raj/projects/copytrading/backend/trading-engine) target="trading-engine"}: cargo::core::compiler::fingerprint:     err: failed to read `/Users/raj/projects/copytrading/backend/trading-engine/target/debug/.fingerprint/trading-engine-d597541a2fdf6b8c/test-bin-trading-engine`
-
-Caused by:
-    No such file or directory (os error 2)
-
-Stack backtrace:
-   0: std::backtrace::Backtrace::create
-   1: cargo_util::paths::read_bytes
-   2: cargo_util::paths::read
-   3: cargo::core::compiler::fingerprint::_compare_old_fingerprint
-   4: cargo::core::compiler::fingerprint::prepare_target
-   5: cargo::core::compiler::compile
-   6: <cargo::core::compiler::build_runner::BuildRunner>::compile
-   7: cargo::ops::cargo_compile::compile_ws
-   8: cargo::ops::cargo_compile::compile_with_exec
-   9: cargo::ops::cargo_compile::compile
-  10: cargo::commands::check::exec
-  11: <cargo::cli::Exec>::exec
-  12: cargo::main
-  13: std::sys::backtrace::__rust_begin_short_backtrace::<fn(), ()>
-  14: std::rt::lang_start::<()>::{closure#0}
-  15: std::rt::lang_start_internal
-  16: _main
+   0.444228416s  INFO prepare_target{force=false package_id=trading-engine v0.1.0 (/Users/raj/projects/copytrading/backend/trading-engine) target="trading-engine"}: cargo::core::compiler::fingerprint: stale: changed "/Users/raj/projects/copytrading/backend/trading-engine/src/main.rs"
+   0.444243291s  INFO prepare_target{force=false package_id=trading-engine v0.1.0 (/Users/raj/projects/copytrading/backend/trading-engine) target="trading-engine"}: cargo::core::compiler::fingerprint:           (vs) "/Users/raj/projects/copytrading/backend/trading-engine/target/debug/.fingerprint/trading-engine-a278435118a2d135/dep-bin-trading-engine"
+   0.444245958s  INFO prepare_target{force=false package_id=trading-engine v0.1.0 (/Users/raj/projects/copytrading/backend/trading-engine) target="trading-engine"}: cargo::core::compiler::fingerprint:                FileTime { seconds: 1765184743, nanos: 807394246 } < FileTime { seconds: 1765184782, nanos: 682427531 }
+   0.444757291s  INFO prepare_target{force=false package_id=trading-engine v0.1.0 (/Users/raj/projects/copytrading/backend/trading-engine) target="trading-engine"}: cargo::core::compiler::fingerprint: fingerprint dirty for trading-engine v0.1.0 (/Users/raj/projects/copytrading/backend/trading-engine)/Check { test: false }/TargetInner { name: "trading-engine", doc: true, ..: with_path("/Users/raj/projects/copytrading/backend/trading-engine/src/main.rs", Edition2024) }
+   0.444764791s  INFO prepare_target{force=false package_id=trading-engine v0.1.0 (/Users/raj/projects/copytrading/backend/trading-engine) target="trading-engine"}: cargo::core::compiler::fingerprint:     dirty: FsStatusOutdated(StaleItem(ChangedFile { reference: "/Users/raj/projects/copytrading/backend/trading-engine/target/debug/.fingerprint/trading-engine-a278435118a2d135/dep-bin-trading-engine", reference_mtime: FileTime { seconds: 1765184743, nanos: 807394246 }, stale: "/Users/raj/projects/copytrading/backend/trading-engine/src/main.rs", stale_mtime: FileTime { seconds: 1765184782, nanos: 682427531 } }))
+   0.536926583s  INFO prepare_target{force=false package_id=trading-engine v0.1.0 (/Users/raj/projects/copytrading/backend/trading-engine) target="trading-engine"}: cargo::core::compiler::fingerprint: stale: changed "/Users/raj/projects/copytrading/backend/trading-engine/src/main.rs"
+   0.536949875s  INFO prepare_target{force=false package_id=trading-engine v0.1.0 (/Users/raj/projects/copytrading/backend/trading-engine) target="trading-engine"}: cargo::core::compiler::fingerprint:           (vs) "/Users/raj/projects/copytrading/backend/trading-engine/target/debug/.fingerprint/trading-engine-d597541a2fdf6b8c/dep-test-bin-trading-engine"
+   0.536951041s  INFO prepare_target{force=false package_id=trading-engine v0.1.0 (/Users/raj/projects/copytrading/backend/trading-engine) target="trading-engine"}: cargo::core::compiler::fingerprint:                FileTime { seconds: 1765184743, nanos: 807392204 } < FileTime { seconds: 1765184782, nanos: 682427531 }
+   0.537188458s  INFO prepare_target{force=false package_id=trading-engine v0.1.0 (/Users/raj/projects/copytrading/backend/trading-engine) target="trading-engine"}: cargo::core::compiler::fingerprint: fingerprint dirty for trading-engine v0.1.0 (/Users/raj/projects/copytrading/backend/trading-engine)/Check { test: true }/TargetInner { name: "trading-engine", doc: true, ..: with_path("/Users/raj/projects/copytrading/backend/trading-engine/src/main.rs", Edition2024) }
+   0.537194458s  INFO prepare_target{force=false package_id=trading-engine v0.1.0 (/Users/raj/projects/copytrading/backend/trading-engine) target="trading-engine"}: cargo::core::compiler::fingerprint:     dirty: FsStatusOutdated(StaleItem(ChangedFile { reference: "/Users/raj/projects/copytrading/backend/trading-engine/target/debug/.fingerprint/trading-engine-d597541a2fdf6b8c/dep-test-bin-trading-engine", reference_mtime: FileTime { seconds: 1765184743, nanos: 807392204 }, stale: "/Users/raj/projects/copytrading/backend/trading-engine/src/main.rs", stale_mtime: FileTime { seconds: 1765184782, nanos: 682427531 } }))
     Checking trading-engine v0.1.0 (/Users/raj/projects/copytrading/backend/trading-engine)
-error: could not compile `trading-engine` (bin "trading-engine" test) due to 2 previous errors; 7 warnings emitted
-warning: build failed, waiting for other jobs to finish...
-error: could not compile `trading-engine` (bin "trading-engine") due to 2 previous errors; 7 warnings emitted
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1.40s

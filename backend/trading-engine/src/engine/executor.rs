@@ -6,10 +6,10 @@ use std::{
 };
 
 use hyperliquid_rust_sdk::{BaseUrl, ClientLimit, ClientOrder, ClientOrderRequest, ExchangeClient};
-use rust_decimal::Decimal;
+use rust_decimal::{prelude::ToPrimitive, Decimal};
 use rust_decimal_macros::dec;
 use sqlx::{PgPool, postgres::PgRow};
-use tokio::sync::{broadcast, mpsc};
+use tokio::sync::{broadcast};
 
 use crate::engine::grouper::FullOrder;
 
@@ -47,8 +47,7 @@ pub async fn start(mut rx: broadcast::Receiver<FullOrder>, pool: PgPool, agentke
         }
     });
 
-    // Create order channel
-    let (tx, mut rx_orders) = broadcast::channel::<OrderTask>(CHANNEL_CAPACITY);
+    let (tx, rx_orders) = broadcast::channel::<OrderTask>(CHANNEL_CAPACITY);
 
     // Spawn worker pool
     for worker_id in 0..WORKER_COUNT {
@@ -59,9 +58,8 @@ pub async fn start(mut rx: broadcast::Receiver<FullOrder>, pool: PgPool, agentke
             order_worker(worker_id, rx_orders, &agentkey).await;
         });
     }
-    drop(rx_orders); // Drop original receiver so workers own it
+    drop(rx_orders);
 
-    // Main loop: receive trades and send to workers
     while let Ok(order) = rx.recv().await {
         let cache_lock = cache.lock().unwrap();
         let followers = match cache_lock.get(&order.user) {
@@ -70,14 +68,12 @@ pub async fn start(mut rx: broadcast::Receiver<FullOrder>, pool: PgPool, agentke
         };
         drop(cache_lock);
 
-        // Send all follower orders to the worker queue
         for follower in followers {
             let task = OrderTask {
                 order: order.clone(),
                 follower,
             };
 
-            // Send to queue, log if queue is full (backpressure)
             match tx.send(task) {
                 Ok(_) => {}
                 Err(broadcast::error::SendError(_)) => {
@@ -156,8 +152,8 @@ async fn handle_follower_order(
         asset: order.coin.clone(),
         is_buy,
         reduce_only: false,
-        limit_px: 1800.0,
-        sz: sz.round_dp(8).to_f64(),
+        limit_px: order.avg_px.to_f64().unwrap_or_default(),
+        sz: sz.round_dp(8).to_f64().unwrap_or_default(),
         cloid: None,
         order_type: ClientOrder::Limit(ClientLimit {
             tif: "Gtc".to_string(),
