@@ -62,7 +62,7 @@ async fn main() -> anyhow::Result<()> {
         });
     }
 
-    let (full_order_tx, full_order_reciever) = tokio::sync::broadcast::channel(10_000);
+    let (full_order_tx, mut full_order_reciever) = tokio::sync::broadcast::channel(10_000);
     let grouper_rx = rx.resubscribe();
     tokio::spawn(async move {
         println!("grouper starts");
@@ -70,17 +70,17 @@ async fn main() -> anyhow::Result<()> {
     });
 
     // grouper -> executor
-    let agent_key = env::var("AGENT_KEY").expect("AGENT_KEY must be set");
-    let pg_pool_clone = pg_pool.clone();
-    tokio::spawn(async move {
-        println!("executor started");
-        engine::executor::start(full_order_reciever, pg_pool_clone, &agent_key).await;
-    });
+    // let agent_key = env::var("AGENT_KEY").expect("AGENT_KEY must be set");
+    // let pg_pool_clone = pg_pool.clone();
+    // tokio::spawn(async move {
+    //     println!("executor started");
+    //     engine::executor::start(full_order_reciever, pg_pool_clone, &agent_key).await;
+    // });
     let server = Server::new(3000, db_url);
     server.start().await?;
 
     loop {
-        match rx.recv().await {
+        match full_order_reciever.recv().await {
             Ok(trade) => {
                 println!("{:?}", trade);
             }

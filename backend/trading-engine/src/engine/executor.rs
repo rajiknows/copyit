@@ -6,10 +6,10 @@ use std::{
 };
 
 use hyperliquid_rust_sdk::{BaseUrl, ClientLimit, ClientOrder, ClientOrderRequest, ExchangeClient};
-use rust_decimal::{prelude::ToPrimitive, Decimal};
+use rust_decimal::{Decimal, prelude::ToPrimitive};
 use rust_decimal_macros::dec;
 use sqlx::{PgPool, postgres::PgRow};
-use tokio::sync::{broadcast};
+use tokio::sync::broadcast;
 
 use crate::engine::grouper::FullOrder;
 
@@ -31,8 +31,6 @@ const WORKER_COUNT: usize = 10; // Number of concurrent workers
 const CHANNEL_CAPACITY: usize = 1000; // Max pending orders in queue
 
 pub async fn start(mut rx: broadcast::Receiver<FullOrder>, pool: PgPool, agentkey: &str) {
-    // let wallet = agentkey.parse().unwrap();
-
     let cache: Arc<Mutex<HashMap<String, Vec<FollowersCache>>>> =
         Arc::new(Mutex::new(HashMap::new()));
 
@@ -208,4 +206,12 @@ async fn preload_followers(
         };
         cache_lock.entry(trader).or_default().push(follower);
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_preload() {}
 }

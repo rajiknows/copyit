@@ -1,6 +1,7 @@
-use tokio::sync::broadcast;
 use std::collections::HashMap;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
+use tokio::sync::{broadcast, Mutex};
 use tokio::time::sleep;
 use rust_decimal::prelude::*;
 use rust_decimal_macros::dec;
@@ -33,7 +34,7 @@ struct PendingOrder {
 }
 
 pub async fn start(mut rx: broadcast::Receiver<WsFillChannel>, tx: broadcast::Sender<FullOrder>) {
-    let mut pending: HashMap<u64, PendingOrder> = HashMap::new();
+    let pending = Arc::new(Mutex::new(HashMap::new()));
 
     loop {
         tokio::select! {
@@ -43,7 +44,9 @@ pub async fn start(mut rx: broadcast::Receiver<WsFillChannel>, tx: broadcast::Se
                 let px = Decimal::from_str(&wsfill.fill.px).unwrap_or(dec!(0));
                 let weighted = px * sz;
 
-                let entry = pending.entry(oid).or_insert_with(|| PendingOrder {
+                let mut pending_guard = pending.lock().await;
+
+                let entry = pending_guard.entry(oid).or_insert_with(|| PendingOrder {
                     user:wsfill.user.clone(),
                     coin: wsfill.fill.coin.clone(),
                     dir: wsfill.fill.dir.clone().unwrap_or("Unknown".to_string()),
@@ -63,12 +66,13 @@ pub async fn start(mut rx: broadcast::Receiver<WsFillChannel>, tx: broadcast::Se
                 if entry.total_sz == sz {
                     let oid_copy = oid;
                     let tx_clone = tx.clone();
-                    let mut pending_clone = pending.clone();
+                    let pending_clone = Arc::clone(&pending);
 
                     tokio::spawn(async move {
                         sleep(Duration::from_millis(420)).await;
 
-                        if let Some(final_order) = pending_clone.remove(&oid_copy) {
+                        let mut pending_guard = pending_clone.lock().await;
+                        if let Some(final_order) = pending_guard.remove(&oid_copy) {
                             if final_order.last_seen.elapsed() >= Duration::from_millis(400) {
                                 let avg_px = if final_order.total_sz > dec!(0) {
                                     final_order.weighted_px / final_order.total_sz
@@ -86,6 +90,7 @@ pub async fn start(mut rx: broadcast::Receiver<WsFillChannel>, tx: broadcast::Se
                                     hash: final_order.hash,
                                     oid: final_order.oid,
                                 };
+                                println!("{:?}", full.clone());
 
                                 let _ = tx_clone.send(full);
                             }
@@ -95,8 +100,9 @@ pub async fn start(mut rx: broadcast::Receiver<WsFillChannel>, tx: broadcast::Se
             }
 
             _ = sleep(Duration::from_secs(5)) => {
+                let mut pending_guard = pending.lock().await;
                 let now = Instant::now();
-                pending.retain(|_, p| {
+                pending_guard.retain(|_, p| {
                     if now.duration_since(p.last_seen) > Duration::from_millis(600) {
                         let avg_px = if p.total_sz > dec!(0) { p.weighted_px / p.total_sz } else { dec!(0) };
                         let full = FullOrder {
@@ -109,7 +115,7 @@ pub async fn start(mut rx: broadcast::Receiver<WsFillChannel>, tx: broadcast::Se
                             hash: p.hash.clone(),
                             oid: p.oid,
                         };
-                        let _ = tx.send(full);
+                        let _ = tx.send(full.clone());
                         false // remove
                     } else {
                         true // keep
@@ -117,5 +123,77 @@ pub async fn start(mut rx: broadcast::Receiver<WsFillChannel>, tx: broadcast::Se
                 });
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::channel::WsFillChannel;
+    use crate::hyperliquid::ws::WsFill;
+    use tokio::sync::broadcast;
+    use tokio::time::{self, Duration};
+    use rust_decimal_macros::dec;
+
+    #[tokio::test]
+    async fn test_order_grouping() {
+        time::pause();
+
+        let (fill_tx, fill_rx) = broadcast::channel::<WsFillChannel>(16);
+        let (order_tx, mut order_rx) = broadcast::channel::<FullOrder>(16);
+
+        tokio::spawn(start(fill_rx, order_tx.clone()));
+
+        let oid = 123;
+        let user = "test_user".to_string();
+
+        let fill1 = WsFill {
+            coin: "BTC".to_string(),
+            px: "50000.0".to_string(),
+            sz: "1.0".to_string(),
+            side: "B".to_string(),
+            time: 1,
+            hash: "hash1".to_string(),
+            oid,
+            startPosition: None,
+            closedPnl: None,
+            dir: Some("Open Long".to_string()),
+            crossed: false,
+            fee: "10.0".to_string(),
+            feeToken: "USDC".to_string(),
+        };
+
+        let fill2 = WsFill {
+            coin: "BTC".to_string(),
+            px: "51000.0".to_string(),
+            sz: "2.0".to_string(),
+            side: "B".to_string(),
+            time: 2,
+            hash: "hash2".to_string(),
+            oid,
+            startPosition: None,
+            closedPnl: None,
+            dir: Some("Open Long".to_string()),
+            crossed: false,
+            fee: "20.0".to_string(),
+            feeToken: "USDC".to_string(),
+        };
+
+        fill_tx.send(WsFillChannel { fill: fill1, user: user.clone() }).unwrap();
+        // Brief pause to ensure the first fill is processed and the debouncer task is spawned
+        time::sleep(Duration::from_millis(10)).await;
+        fill_tx.send(WsFillChannel { fill: fill2, user: user.clone() }).unwrap();
+
+        // Advance time to trigger the debouncer
+        time::advance(Duration::from_millis(500)).await;
+
+        let full_order = order_rx.recv().await.unwrap();
+
+        let expected_total_sz = dec!(3.0);
+        let expected_avg_px = (dec!(50000.0) * dec!(1.0) + dec!(51000.0) * dec!(2.0)) / dec!(3.0);
+
+        assert_eq!(full_order.oid, oid);
+        assert_eq!(full_order.total_sz, expected_total_sz);
+        assert_eq!(full_order.avg_px.round_dp(2), expected_avg_px.round_dp(2));
     }
 }
