@@ -10,16 +10,16 @@
 use std::env;
 
 // use futures_util::future::ok;
-use serde::{Deserialize };
+use serde::Deserialize;
 
 use crate::{api::Server, channel::WsFillChannel, hyperliquid::ws::fetch_fills_with_retry};
 
 mod api;
+mod channel;
 mod cron;
 mod engine;
 mod hyperliquid;
 mod models;
-mod channel;
 #[derive(Debug, Clone, Deserialize)]
 pub struct WsTrade {
     pub coin: String,
@@ -50,10 +50,9 @@ async fn main() -> anyhow::Result<()> {
     let monitored_traders = vec![
         "0x5b5d51203a0f9079f8aeb098a6523a13f298c060".to_string(),
         "0x7fdafde5cfb5465924316eced2d3715494c517d1".to_string(),
-
     ];
 
-    let (tx, mut rx) = tokio::sync::broadcast::channel::<WsFillChannel>(10_000);
+    let (tx, rx) = tokio::sync::broadcast::channel::<WsFillChannel>(10_000);
 
     for trader in monitored_traders {
         let tx = tx.clone();
@@ -71,7 +70,7 @@ async fn main() -> anyhow::Result<()> {
 
     // grouper -> executor
     // let agent_key = env::var("AGENT_KEY").expect("AGENT_KEY must be set");
-    // let pg_pool_clone = pg_pool.clone();
+    let pg_pool_clone = pg_pool.clone();
     // tokio::spawn(async move {
     //     println!("executor started");
     //     engine::executor::start(full_order_reciever, pg_pool_clone, &agent_key).await;
