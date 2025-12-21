@@ -1,5 +1,8 @@
-use axum::{Router, extract::State, http::StatusCode, routing::get, Json};
-use serde::{Deserialize, Serialize};
+use crate::routes;
+use axum::{
+    routing::{get},
+    Router,
+};
 use sqlx::postgres::PgPoolOptions;
 use sqlx::PgPool;
 use std::net::SocketAddr;
@@ -44,36 +47,11 @@ impl Server {
         Router::new()
             .route("/", get(|| async { "Hyperliquid Copy Trading Engine API" }))
             .route("/health", get(|| async { "OK" }))
-            .route("/traders", get(get_traders))
-            .with_state(state)
+            .nest("/traders", routes::traders::create_router().with_state(state.clone()))
+            .nest("/followers", routes::followers::create_router().with_state(state.clone()))
+            .nest("/copy_configs", routes::copy_configs::create_router().with_state(state.clone()))
+            .nest("/leaderboard", routes::leaderboard::create_router().with_state(state.clone()))
+            .nest("/trades", routes::trades::create_router().with_state(state))
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
-struct Trader {
-    name: String,
-    addr: String,
-}
-
-async fn get_traders(
-    State(state): State<Arc<Server>>,
-) -> Result<Json<Vec<Trader>>, StatusCode> {
-    let pool = state
-        .pool
-        .as_ref()
-        .ok_or(StatusCode::INTERNAL_SERVER_ERROR)?;
-
-    let rows = sqlx::query_as::<_, (String, String)>(
-        "SELECT address, name FROM traders",
-    )
-    .fetch_all(pool)
-    .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-
-    let traders: Vec<Trader> = rows
-        .into_iter()
-        .map(|(addr, name)| Trader { name, addr })
-        .collect();
-
-    Ok(Json(traders))
-}

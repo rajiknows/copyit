@@ -3,10 +3,25 @@ use futures_util::{SinkExt, StreamExt};
 use serde::Deserialize;
 use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
-use anyhow::anyhow;
 use serde::Serialize;
+use thiserror::Error;
 
 use crate::channel::WsFillChannel;
+
+#[derive(Error, Debug)]
+pub enum WsError {
+    #[error("WebSocket connection failed: {0}")]
+    ConnectionFailed(#[from] tokio_tungstenite::tungstenite::Error),
+    #[error("Failed to serialize subscription request: {0}")]
+    SerializationFailed(#[from] serde_json::Error),
+    #[error("WebSocket message processing error: {0}")]
+    MessageProcessing(tokio_tungstenite::tungstenite::Error),
+    #[error("WebSocket closed for user {0}")]
+    WebSocketClosed(String),
+    #[error("WebSocket stream ended unexpectedly for {0}")]
+    StreamEnded(String),
+}
+
 
 const WS_MAINNET: &str = "wss://api.hyperliquid.xyz/ws";
 
@@ -71,7 +86,7 @@ struct SubscriptionResponse {
 pub async fn fetch_fills(
     trader_addr: String,
     channel_tx: tokio::sync::broadcast::Sender<WsFillChannel>,
-) -> anyhow::Result<()> {
+) -> Result<(), WsError> {
     let url = WS_MAINNET.into_client_request().unwrap();
     let (mut ws_stream, _) = tokio_tungstenite::connect_async(url).await?;
 
@@ -87,7 +102,7 @@ pub async fn fetch_fills(
     ws_stream.send(sub_msg).await?;
 
     while let Some(msg) = ws_stream.next().await {
-        let msg = msg?;
+        let msg = msg.map_err(WsError::MessageProcessing)?;
         if let Message::Text(text) = msg {
             if text.contains("subscriptionResponse") {
                 let response: Incoming = serde_json::from_str(&text)?;
@@ -136,15 +151,13 @@ pub async fn fetch_fills(
                 let _ = ws_stream.send(Message::Pong(data)).await;
             }
             Ok(Message::Close(_)) | Err(_) => {
-                return Err(anyhow!("WebSocket closed for user {trader_addr}"));
+                return Err(WsError::WebSocketClosed(trader_addr));
             }
             _ => {}
         }
     }
 
-    Err(anyhow!(
-        "WebSocket stream ended unexpectedly for {trader_addr}"
-    ))
+    Err(WsError::StreamEnded(trader_addr))
 }
 
 pub async fn fetch_fills_with_retry(

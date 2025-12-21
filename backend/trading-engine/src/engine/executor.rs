@@ -1,16 +1,37 @@
-use log::info;
+use log::{info, error};
 use sqlx::Row;
-use std::{
-    collections::HashMap,
-};
+use std::{collections::HashMap, str::FromStr};
 use hyperliquid_rust_sdk::{BaseUrl, ClientLimit, ClientOrder, ClientOrderRequest, ExchangeClient};
 use rust_decimal::{Decimal, prelude::ToPrimitive};
 use rust_decimal_macros::dec;
 use sqlx::{PgPool, postgres::PgRow};
 use tokio::sync::{broadcast, RwLock};
 use std::sync::Arc;
+use thiserror::Error;
+
 
 use crate::engine::grouper::FullOrder;
+
+#[derive(Error, Debug)]
+pub enum ExecutorError {
+    #[error("Invalid agent key: {0}")]
+    InvalidAgentKey(String),
+    #[error("Exchange client initialization failed: {0}")]
+    ClientInitialization(String),
+    #[error("Order placement failed: {0}")]
+    OrderPlacement(String),
+    #[error("Order size too small")]
+    OrderSizeTooSmall,
+    #[error("No data in exchange response")]
+    NoDataInResponse,
+    #[error("Unexpected status from exchange: {0:?}")]
+    UnexpectedStatus(hyperliquid_rust_sdk::ExchangeDataStatus),
+    #[error("Database error: {0}")]
+    SqlxError(#[from] sqlx::Error),
+    #[error("Failed to convert decimal to f64")]
+    DecimalConversion,
+}
+
 
 #[derive(Debug, Clone)]
 pub struct FollowersCache {
@@ -31,13 +52,13 @@ const CHANNEL_CAPACITY: usize = 1000;
 
 type SharedCache = Arc<RwLock<HashMap<String, Vec<FollowersCache>>>>;
 
-pub async fn start(mut rx: broadcast::Receiver<FullOrder>, pool: PgPool, agentkey: &str) {
+pub async fn start(mut rx: broadcast::Receiver<FullOrder>, pool: PgPool, agentkey: &str) -> Result<(), ExecutorError> {
     let cache: SharedCache = Arc::new(RwLock::new(HashMap::new()));
 
     // Initial preload
     {
         let mut write_lock = cache.write().await;
-        preload_followers(&pool, &mut write_lock).await;
+        preload_followers(&pool, &mut write_lock).await?;
     }
 
     // Background refresher task
@@ -47,7 +68,9 @@ pub async fn start(mut rx: broadcast::Receiver<FullOrder>, pool: PgPool, agentke
         loop {
             tokio::time::sleep(tokio::time::Duration::from_secs(300)).await;
             let mut new_cache = HashMap::new();
-            preload_followers(&pool_clone, &mut new_cache).await;
+            if let Err(e) = preload_followers(&pool_clone, &mut new_cache).await {
+                error!("Failed to refresh follower cache: {}", e);
+            }
 
             // Atomic replacement under write lock
             let mut write_lock = cache_clone.write().await;
@@ -63,7 +86,9 @@ pub async fn start(mut rx: broadcast::Receiver<FullOrder>, pool: PgPool, agentke
         let rx_orders = rx_orders.resubscribe();
         let agentkey = agentkey.to_string();
         tokio::spawn(async move {
-            order_worker(worker_id, rx_orders, &agentkey).await;
+            if let Err(e) = order_worker(worker_id, rx_orders, &agentkey).await {
+                error!("Worker {} failed: {}", worker_id, e);
+            }
         });
     }
 
@@ -88,17 +113,14 @@ pub async fn start(mut rx: broadcast::Receiver<FullOrder>, pool: PgPool, agentke
             }
         }
     }
+    Ok(())
 }
 
-async fn order_worker(worker_id: usize, mut rx: broadcast::Receiver<OrderTask>, agentkey: &str) {
+async fn order_worker(worker_id: usize, mut rx: broadcast::Receiver<OrderTask>, agentkey: &str) -> Result<(), ExecutorError> {
     let wallet = agentkey.parse().unwrap();
-    let exchange_client = match ExchangeClient::new(None, wallet, Some(BaseUrl::Testnet), None, None).await {
-        Ok(client) => client,
-        Err(e) => {
-            log::error!("Worker {} failed to initialize client: {}", worker_id, e);
-            return;
-        }
-    };
+    let exchange_client = ExchangeClient::new(None, wallet, Some(BaseUrl::Testnet), None, None)
+        .await
+        .map_err(|e| ExecutorError::ClientInitialization(e.to_string()))?;
 
     info!("Worker {} started", worker_id);
 
@@ -110,19 +132,20 @@ async fn order_worker(worker_id: usize, mut rx: broadcast::Receiver<OrderTask>, 
                 info!("Worker {}: Executed order for {} — OID: {}", worker_id, task.follower.address, oid);
             }
             Err(e) => {
-                log::error!("Worker {}: Failed for {} — {}", worker_id, task.follower.address, e);
+                error!("Worker {}: Failed for {} — {}", worker_id, task.follower.address, e);
             }
         }
     }
 
     info!("Worker {} shutting down", worker_id);
+    Ok(())
 }
 
 async fn handle_follower_order(
     exchange_client: &ExchangeClient,
     order: &FullOrder,
     follower: &FollowersCache,
-) -> Result<u64, String> {
+) -> Result<u64, ExecutorError> {
     let mut sz = order.total_sz * follower.ratio;
 
     if let Some(max_risk) = follower.max_risk {
@@ -133,7 +156,7 @@ async fn handle_follower_order(
     }
 
     if sz <= dec!(0.000001) {
-        return Err("Order size too small".to_string());
+        return Err(ExecutorError::OrderSizeTooSmall);
     }
 
     let is_buy = matches!(order.dir.as_str(), "Open Long" | "Close Short");
@@ -142,8 +165,8 @@ async fn handle_follower_order(
         asset: order.coin.clone(),
         is_buy,
         reduce_only: false,
-        limit_px: order.avg_px.to_f64().unwrap_or_default(),
-        sz: sz.round_dp(8).to_f64().unwrap_or_default(),
+        limit_px: order.avg_px.to_f64().ok_or(ExecutorError::DecimalConversion)?,
+        sz: sz.round_dp(8).to_f64().ok_or(ExecutorError::DecimalConversion)?,
         cloid: None,
         order_type: ClientOrder::Limit(ClientLimit {
             tif: "Gtc".to_string(),
@@ -153,19 +176,19 @@ async fn handle_follower_order(
     let response = exchange_client
         .order(client_order, None)
         .await
-        .map_err(|e| format!("Request failed: {}", e))?;
+        .map_err(|e| ExecutorError::OrderPlacement(e.to_string()))?;
 
     match response {
         hyperliquid_rust_sdk::ExchangeResponseStatus::Ok(exchange_response) => {
-            let data = exchange_response.data.ok_or("No data in response")?;
+            let data = exchange_response.data.ok_or(ExecutorError::NoDataInResponse)?;
             match &data.statuses[0] {
                 hyperliquid_rust_sdk::ExchangeDataStatus::Filled(o) => Ok(o.oid),
                 hyperliquid_rust_sdk::ExchangeDataStatus::Resting(o) => Ok(o.oid),
-                _ => Err(format!("Unexpected status: {:?}", data.statuses[0])),
+                status => Err(ExecutorError::UnexpectedStatus(status.clone())),
             }
         }
         hyperliquid_rust_sdk::ExchangeResponseStatus::Err(e) => {
-            Err(format!("Exchange error: {}", e))
+            Err(ExecutorError::OrderPlacement(e.to_string()))
         }
     }
 }
@@ -173,7 +196,7 @@ async fn handle_follower_order(
 async fn preload_followers(
     pool: &PgPool,
     cache: &mut HashMap<String, Vec<FollowersCache>>,
-) {
+) -> Result<(), ExecutorError> {
     let rows: Vec<PgRow> = sqlx::query(
         "SELECT f.address, f.agent_signature, c.trader_address, c.ratio, c.max_risk_per_trade
          FROM copy_configs c
@@ -181,8 +204,7 @@ async fn preload_followers(
          WHERE c.is_active = true",
     )
     .fetch_all(pool)
-    .await
-    .unwrap_or_default();
+    .await?;
 
     cache.clear();
     for row in rows {
@@ -195,6 +217,7 @@ async fn preload_followers(
         };
         cache.entry(trader).or_default().push(follower);
     }
+    Ok(())
 }
 
 #[cfg(test)]

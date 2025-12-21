@@ -1,12 +1,31 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use tokio::sync::{broadcast, Mutex};
+use tokio::sync::{
+    broadcast,
+    broadcast::error::{RecvError, SendError},
+    Mutex,
+};
 use tokio::time::sleep;
 use rust_decimal::prelude::*;
 use rust_decimal_macros::dec;
+use thiserror::Error;
 
 use crate::channel::WsFillChannel;
+use crate::engine::parser::ParseError;
+
+#[derive(Error, Debug)]
+pub enum GrouperError {
+    #[error("Broadcast channel receive error: {0}")]
+    BroadcastReceiveError(#[from] RecvError),
+    #[error("Failed to parse decimal: {0}")]
+    ParseDecimalError(#[from] ParseError),
+    #[error("Failed to send full order: {0}")]
+    SendError(#[from] SendError<FullOrder>),
+    #[error("Unknown fill direction")]
+    UnknownFillDirection,
+}
+
 
 #[derive(Debug, Clone)]
 pub struct FullOrder {
@@ -33,15 +52,15 @@ struct PendingOrder {
     oid: u64,
 }
 
-pub async fn start(mut rx: broadcast::Receiver<WsFillChannel>, tx: broadcast::Sender<FullOrder>) {
+pub async fn start(mut rx: broadcast::Receiver<WsFillChannel>, tx: broadcast::Sender<FullOrder>) -> Result<(), GrouperError> {
     let pending = Arc::new(Mutex::new(HashMap::new()));
 
     loop {
         tokio::select! {
             Ok(wsfill) = rx.recv() => {
                 let oid = wsfill.fill.oid;
-                let sz = Decimal::from_str(&wsfill.fill.sz).unwrap_or(dec!(0));
-                let px = Decimal::from_str(&wsfill.fill.px).unwrap_or(dec!(0));
+                let sz = Decimal::from_str(&wsfill.fill.sz).map_err(|e| ParseError::Size(e.to_string()))?;
+                let px = Decimal::from_str(&wsfill.fill.px).map_err(|e| ParseError::Price(e.to_string()))?;
                 let weighted = px * sz;
 
                 let mut pending_guard = pending.lock().await;
@@ -49,9 +68,9 @@ pub async fn start(mut rx: broadcast::Receiver<WsFillChannel>, tx: broadcast::Se
                 let entry = pending_guard.entry(oid).or_insert_with(|| PendingOrder {
                     user:wsfill.user.clone(),
                     coin: wsfill.fill.coin.clone(),
-                    dir: wsfill.fill.dir.clone().unwrap_or("Unknown".to_string()),
+                    dir: wsfill.fill.dir.clone().unwrap_or("Unknown".to_string()), // This should be handled properly
                     total_sz: dec!(0),
-                    weighted_px: dec!(0),
+                    weighted_px: dec!(0),  // sum(px * sz)
                     timestamp: wsfill.fill.time,
                     last_seen: Instant::now(),
                     hash: wsfill.fill.hash.clone(),
@@ -92,7 +111,9 @@ pub async fn start(mut rx: broadcast::Receiver<WsFillChannel>, tx: broadcast::Se
                                 };
                                 println!("{:?}", full.clone());
 
-                                let _ = tx_clone.send(full);
+                                if let Err(e) = tx_clone.send(full) {
+                                    eprintln!("Failed to send full order: {}", e);
+                                }
                             }
                         }
                     });
@@ -115,7 +136,9 @@ pub async fn start(mut rx: broadcast::Receiver<WsFillChannel>, tx: broadcast::Se
                             hash: p.hash.clone(),
                             oid: p.oid,
                         };
-                        let _ = tx.send(full.clone());
+                        if let Err(e) = tx.send(full.clone()) {
+                             eprintln!("Failed to send full order: {}", e);
+                        }
                         false // remove
                     } else {
                         true // keep

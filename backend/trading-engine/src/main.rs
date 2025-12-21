@@ -18,8 +18,10 @@ mod api;
 mod channel;
 mod cron;
 mod engine;
+mod error;
 mod hyperliquid;
 mod models;
+mod routes;
 #[derive(Debug, Clone, Deserialize)]
 pub struct WsTrade {
     pub coin: String,
@@ -61,25 +63,30 @@ async fn main() -> anyhow::Result<()> {
         });
     }
 
-    let (full_order_tx, mut full_order_reciever) = tokio::sync::broadcast::channel(10_000);
+    let (full_order_tx, full_order_reciever) = tokio::sync::broadcast::channel(10_000);
     let grouper_rx = rx.resubscribe();
     tokio::spawn(async move {
         println!("grouper starts");
-        engine::grouper::start(grouper_rx, full_order_tx).await;
+        if let Err(e) = engine::grouper::start(grouper_rx, full_order_tx).await {
+            eprintln!("Grouper failed: {}", e);
+        }
     });
 
     // grouper -> executor
-    // let agent_key = env::var("AGENT_KEY").expect("AGENT_KEY must be set");
-    let pg_pool_clone = pg_pool.clone();
-    // tokio::spawn(async move {
-    //     println!("executor started");
-    //     engine::executor::start(full_order_reciever, pg_pool_clone, &agent_key).await;
-    // });
+    let agent_key = env::var("AGENT_KEY").expect("AGENT_KEY must be set");
+    let executor_full_order_reciever = full_order_reciever.resubscribe();
+    tokio::spawn(async move {
+        println!("executor started");
+        if let Err(e) = engine::executor::start(executor_full_order_reciever, pg_pool.clone(), &agent_key).await {
+            eprintln!("Executor failed: {}", e);
+        }
+    });
     let server = Server::new(3000, db_url);
     server.start().await?;
 
+    let mut main_full_order_reciever = full_order_reciever.resubscribe();
     loop {
-        match full_order_reciever.recv().await {
+        match main_full_order_reciever.recv().await {
             Ok(trade) => {
                 println!("{:?}", trade);
             }
