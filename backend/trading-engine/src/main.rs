@@ -1,17 +1,5 @@
-// this is the main entrypoint of our trading engine
-//
-// we will have these modules or should we say services
-// 1. Detector ( constantly detectes trades from every batch of txns)
-// 2. Calculator ( calculates position of the follower )
-// 3. Executor ( executes a tx and sends it to the blockhain )
-// 4. Monitor ( position monitoring module )
-// 5. Hyperliquid ( hyperliquid ws connection , all apis)
-
 use std::env;
-
-// use futures_util::future::ok;
 use serde::Deserialize;
-
 use crate::{api::Server, channel::WsFillChannel, hyperliquid::ws::fetch_fills_with_retry};
 
 mod api;
@@ -22,6 +10,8 @@ mod error;
 mod hyperliquid;
 mod models;
 mod routes;
+
+/// the trade response from hyperliquid api
 #[derive(Debug, Clone, Deserialize)]
 pub struct WsTrade {
     pub coin: String,
@@ -62,6 +52,13 @@ async fn main() -> anyhow::Result<()> {
             fetch_fills_with_retry(trader, tx).await;
         });
     }
+
+    let pg_pool_clone = pg_pool.clone();
+    tokio::spawn(async move {
+        if let Err(e) = crate::cron::start_scheduler(pg_pool_clone).await {
+            log::error!("Scheduler failed: {}", e);
+        }
+    });
 
     let (full_order_tx, full_order_reciever) = tokio::sync::broadcast::channel(10_000);
     let grouper_rx = rx.resubscribe();
