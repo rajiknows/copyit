@@ -206,7 +206,7 @@ mod tests {
             .unwrap();
 
         // Create tables (SQLite-compatible schema)
-        pool.execute(
+        sqlx::query(
             r#"
             CREATE TABLE executed_trades (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -239,7 +239,7 @@ mod tests {
             updated_at TEXT
             );
             "#
-        ).await.unwrap();
+        ).execute(pool).await.unwrap();
 
         pool
     }

@@ -64,6 +64,10 @@ async fn get_follower(
     Ok(Json(follower))
 }
 
+
+// there is one design flaw here ,
+// when a follower is deleted we also need to remove it from the in-memory follower cache
+// that is pressent in the executor
 async fn delete_follower(
     State(state): State<Arc<Server>>,
     Path(id): Path<i32>,
@@ -100,14 +104,25 @@ async fn register_follower(
     Json(payload): Json<RegisterFollower>,
 ) -> Result<Json<FollowerDetails>, AppError> {
     let pool = state.pool.as_ref().ok_or(AppError::InternalServerError)?;
+    let mut tx = pool.begin().await?;
 
-    let follower: Follower = sqlx::query_as(
-        "INSERT INTO followers (address, agent_signature) VALUES ($1, $2) RETURNING *",
-    )
-    .bind(&payload.address)
-    .bind(&payload.agent_signature)
-    .fetch_one(pool)
-    .await?;
+    let follower: Follower =
+        match sqlx::query_as("SELECT * FROM followers WHERE address = $1")
+            .bind(&payload.address)
+            .fetch_optional(&mut *tx)
+            .await?
+        {
+            Some(follower) => follower,
+            None => {
+                sqlx::query_as(
+                    "INSERT INTO followers (address, agent_signature) VALUES ($1, $2) RETURNING *",
+                )
+                .bind(&payload.address)
+                .bind(&payload.agent_signature)
+                .fetch_one(&mut *tx)
+                .await?
+            }
+        };
 
     let copy_config: CopyConfig = sqlx::query_as(
         "INSERT INTO copy_configs (follower_id, trader_address, ratio, max_risk_per_trade) VALUES ($1, $2, $3, $4) RETURNING *",
@@ -116,8 +131,18 @@ async fn register_follower(
     .bind(&payload.trader_address)
     .bind(payload.ratio)
     .bind(payload.max_risk_per_trade)
-    .fetch_one(pool)
-    .await?;
+    .fetch_one(&mut *tx)
+    .await
+    .map_err(|e| {
+        if let Some(db_err) = e.as_database_error() {
+            if db_err.is_unique_violation() {
+                return AppError::BadRequest("You are already following this trader.".to_string());
+            }
+        }
+        e.into()
+    })?;
+
+    tx.commit().await?;
 
     Ok(Json(FollowerDetails {
         follower,
